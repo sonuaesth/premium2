@@ -1,0 +1,32 @@
+{
+  "name": "premium2",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx src/tdlib.ts",
+    "start": "tsx src/tdlib.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sonuaesth/premium2.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sonuaesth/premium2/issues"
+  },
+  "homepage": "https://github.com/sonuaesth/premium2#readme",
+  "dependencies": {
+    "dotenv": "^17.3.1",
+    "prebuilt-tdlib": "^0.1008030.0",
+    "tdl": "^8.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

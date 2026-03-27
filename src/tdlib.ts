@@ -4,19 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import process, { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { getTdjson } from "prebuilt-tdlib";
 import { configure, createClient } from "tdl";
 
 const env = config().parsed ?? {};
 const apiId = Number(env.API_ID);
 const apiHash = env.API_HASH;
 const appVersion = env.APP_VERSION ?? "1.0.0";
-const commonTdjsonPaths = [
-  env.TDJSON_PATH,
-  "/opt/homebrew/lib/libtdjson.dylib",
-  "/usr/local/lib/libtdjson.dylib",
-  "/opt/homebrew/opt/tdlib/lib/libtdjson.dylib",
-  "/usr/local/opt/tdlib/lib/libtdjson.dylib",
-].filter((value): value is string => Boolean(value));
+const configuredTdjsonPath = env.TDJSON_PATH;
 
 if (!Number.isFinite(apiId)) {
   throw new Error("Missing or invalid API_ID in .env");
@@ -26,13 +21,37 @@ if (!apiHash) {
   throw new Error("Missing API_HASH in .env");
 }
 
-const tdjsonPath = commonTdjsonPaths.find((value) => existsSync(value));
+if (configuredTdjsonPath && !existsSync(configuredTdjsonPath)) {
+  throw new Error(
+    `TDJSON_PATH points to a missing file: ${configuredTdjsonPath}. ` +
+      "Put tdjson.dll at that path, remove TDJSON_PATH to use prebuilt-tdlib, or update TDJSON_PATH in .env."
+  );
+}
+
+const bundledTdjsonPath =
+  !configuredTdjsonPath && process.platform === "win32" ? getTdjson() : undefined;
+const tdjsonPath =
+  configuredTdjsonPath ??
+  bundledTdjsonPath ??
+  [
+    "C:\\tdlib\\tdjson.dll",
+    path.join(process.cwd(), "tdlib", "tdjson.dll"),
+    "/opt/homebrew/lib/libtdjson.dylib",
+    "/usr/local/lib/libtdjson.dylib",
+    "/opt/homebrew/opt/tdlib/lib/libtdjson.dylib",
+    "/usr/local/opt/tdlib/lib/libtdjson.dylib",
+  ].find((value) => existsSync(value));
 
 if (tdjsonPath) {
   configure({
     libdir: path.dirname(tdjsonPath),
     tdjson: path.basename(tdjsonPath),
   });
+} else if (process.platform === "win32") {
+  throw new Error(
+    "TDLib was not found. Install prebuilt-tdlib or set TDJSON_PATH in .env " +
+      "to your tdjson.dll file, for example C:\\path\\to\\tdjson.dll."
+  );
 }
 
 const rl = createInterface({ input, output });
