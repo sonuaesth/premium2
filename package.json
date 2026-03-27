@@ -22,7 +22,7 @@
   "homepage": "https://github.com/sonuaesth/premium2#readme",
   "dependencies": {
     "dotenv": "^17.3.1",
-    "prebuilt-tdlib": "^0.1008030.0",
+    "prebuilt-tdlib": "^0.1008062.2",
     "tdl": "^8.1.0"
   },
   "devDependencies": {

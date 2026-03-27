@@ -65,6 +65,39 @@ async function askUsername() {
   return username.startsWith("@") ? username.slice(1) : username;
 }
 
+const premiumDurations = ["1", "3", "6", "12"] as const;
+type PremiumDuration = (typeof premiumDurations)[number];
+
+function buildPremiumQuestionText() {
+  return [
+    "Which Telegram Premium do you want?",
+    "Reply with one of these options:",
+    "1 - 1 month",
+    "3 - 3 months",
+    "6 - 6 months",
+    "12 - 12 months",
+  ].join("\n");
+}
+
+function getMessageText(message: {
+  content?: {
+    _: string;
+    text?: {
+      text?: string;
+    };
+  };
+}) {
+  if (message.content?._ !== "messageText") {
+    return undefined;
+  }
+
+  return message.content.text?.text?.trim();
+}
+
+function isPremiumDuration(value: string): value is PremiumDuration {
+  return premiumDurations.includes(value as PremiumDuration);
+}
+
 export const client = createClient({
   apiId,
   apiHash,
@@ -77,6 +110,191 @@ export const client = createClient({
     system_version: env.SYSTEM_VERSION ?? `${os.platform()} ${os.release()}`,
   },
 });
+
+function getPrivateChatUserId(chat: {
+  id: number;
+  type?: {
+    _: string;
+    user_id?: number;
+  };
+}) {
+  if (chat.type?._ !== "chatTypePrivate" || !chat.type.user_id) {
+    throw new Error(
+      `Chat ${chat.id} is not a private user chat, so Telegram Premium can't be gifted to it with this flow.`
+    );
+  }
+
+  return chat.type.user_id;
+}
+
+async function getPremiumGiftStarOption(monthCount: PremiumDuration) {
+  const options = await client.invoke({
+    _: "getPremiumGiftPaymentOptions",
+  });
+
+  const option = options.options?.find(
+    (value: {
+      month_count?: number;
+      currency?: string;
+      star_count?: number;
+      amount?: number;
+    }) =>
+      value.month_count === Number(monthCount) &&
+      (value.currency === "XTR" || Number(value.star_count) > 0)
+  );
+
+  if (!option) {
+    throw new Error(
+      `Telegram didn't return a Stars premium gift option for ${monthCount} month(s).`
+    );
+  }
+
+  const starCount =
+    typeof option.star_count === "number" && option.star_count > 0
+      ? option.star_count
+      : option.amount;
+
+  if (typeof starCount !== "number" || starCount <= 0) {
+    throw new Error(
+      `Telegram returned an invalid Stars amount for ${monthCount} month(s).`
+    );
+  }
+
+  return {
+    monthCount: Number(monthCount),
+    starCount,
+  };
+}
+
+async function giftPremiumForSelection(chat: {
+  id: number;
+  type?: {
+    _: string;
+    user_id?: number;
+  };
+}, monthCount: PremiumDuration) {
+  const userId = getPrivateChatUserId(chat);
+  const option = await getPremiumGiftStarOption(monthCount);
+  const inputInvoice = {
+    _: "inputInvoiceTelegram",
+    purpose: {
+      _: "telegramPaymentPurposePremiumGift",
+      user_id: userId,
+      currency: "XTR",
+      amount: option.starCount,
+      month_count: option.monthCount,
+      text: {
+        _: "formattedText",
+        text: `Telegram Premium for ${monthCount} month(s)`,
+      },
+    },
+  } as const;
+
+  const paymentForm = await client.invoke({
+    _: "getPaymentForm",
+    input_invoice: inputInvoice,
+  });
+
+  if (paymentForm.type?._ !== "paymentFormTypeStars") {
+    throw new Error(
+      `Telegram returned a non-Stars payment form for ${monthCount} month(s).`
+    );
+  }
+
+  await client.invoke({
+    _: "sendPaymentForm",
+    input_invoice: inputInvoice,
+    payment_form_id: paymentForm.id,
+    order_info_id: "",
+    shipping_option_id: "",
+    credentials: null,
+    tip_amount: 0,
+  });
+
+  await client.invoke({
+    _: "sendMessage",
+    chat_id: chat.id,
+    input_message_content: {
+      _: "inputMessageText",
+      text: {
+        _: "formattedText",
+        text: `Gifted Telegram Premium for ${monthCount} month(s).`,
+      },
+    },
+  });
+}
+
+export async function askPremiumDurationInChat(chatId: number) {
+  await client.invoke({
+    _: "sendMessage",
+    chat_id: chatId,
+    input_message_content: {
+      _: "inputMessageText",
+      text: {
+        _: "formattedText",
+        text: buildPremiumQuestionText(),
+      },
+    },
+  });
+
+  return new Promise<PremiumDuration>((resolve, reject) => {
+    const onUpdate = async (update: {
+      _: string;
+      message?: {
+        chat_id: number;
+        is_outgoing?: boolean;
+        content?: {
+          _: string;
+          text?: {
+            text?: string;
+          };
+        };
+      };
+    }) => {
+      if (update._ !== "updateNewMessage" || !update.message) {
+        return;
+      }
+
+      if (update.message.chat_id !== chatId) {
+        return;
+      }
+
+      if (update.message.is_outgoing) {
+        return;
+      }
+
+      const text = getMessageText(update.message);
+      if (!text) {
+        return;
+      }
+
+      if (isPremiumDuration(text)) {
+        client.off("update", onUpdate);
+        resolve(text);
+        return;
+      }
+
+      try {
+        await client.invoke({
+          _: "sendMessage",
+          chat_id: chatId,
+          input_message_content: {
+            _: "inputMessageText",
+            text: {
+              _: "formattedText",
+              text: "Please reply with 1, 3, 6, or 12.",
+            },
+          },
+        });
+      } catch (error) {
+        client.off("update", onUpdate);
+        reject(error);
+      }
+    };
+
+    client.on("update", onUpdate);
+  });
+}
 
 async function start() {
   await client.login(() => ({
@@ -92,7 +310,7 @@ async function start() {
     },
   }));
 
-  console.log("Logged in!");
+  console.log("Logged in as user!");
 
   const username = await askUsername();
   const targetChat = await client.invoke({
@@ -100,19 +318,9 @@ async function start() {
     username,
   });
 
-  await client.invoke({
-    _: "sendMessage",
-    chat_id: targetChat.id,
-    input_message_content: {
-      _: "inputMessageText",
-      text: {
-        _: "formattedText",
-        text: "Hello from TDLib 🚀",
-      },
-    },
-  });
-
-  console.log("Message sent");
+  const selectedDuration = await askPremiumDurationInChat(targetChat.id);
+  await giftPremiumForSelection(targetChat, selectedDuration);
+  console.log(`Gifted premium for ${selectedDuration} month(s)`);
 }
 
 start()
