@@ -1,9 +1,11 @@
+import { execFile } from "node:child_process";
 import { config } from "dotenv";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process, { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { promisify } from "node:util";
 import { getTdjson } from "prebuilt-tdlib";
 import { configure, createClient } from "tdl";
 
@@ -55,6 +57,20 @@ if (tdjsonPath) {
 }
 
 const rl = createInterface({ input, output });
+const execFileAsync = promisify(execFile);
+const projectRoot = process.cwd();
+const fragmentWorkerScriptPath = path.join(
+  projectRoot,
+  "fragment_worker",
+  "gift_premium.py"
+);
+const fragmentWorkerPythonPath = path.join(
+  projectRoot,
+  "fragment_worker",
+  ".venv",
+  "Scripts",
+  "python.exe"
+);
 
 function ask(question: string) {
   return rl.question(question);
@@ -65,14 +81,13 @@ async function askUsername() {
   return username.startsWith("@") ? username.slice(1) : username;
 }
 
-const premiumDurations = ["1", "3", "6", "12"] as const;
+const premiumDurations = ["3", "6", "12"] as const;
 type PremiumDuration = (typeof premiumDurations)[number];
 
 function buildPremiumQuestionText() {
   return [
     "Which Telegram Premium do you want?",
     "Reply with one of these options:",
-    "1 - 1 month",
     "3 - 3 months",
     "6 - 6 months",
     "12 - 12 months",
@@ -111,117 +126,77 @@ export const client = createClient({
   },
 });
 
-function getPrivateChatUserId(chat: {
-  id: number;
-  type?: {
-    _: string;
-    user_id?: number;
-  };
-}) {
-  if (chat.type?._ !== "chatTypePrivate" || !chat.type.user_id) {
+type FragmentGiftResult = {
+  success: boolean;
+  username?: string;
+  months?: number;
+  transaction_hash?: string | null;
+  required_amount?: number | null;
+  error?: string;
+};
+
+async function giftPremiumViaFragment(username: string, monthCount: PremiumDuration) {
+  if (!existsSync(fragmentWorkerPythonPath)) {
     throw new Error(
-      `Chat ${chat.id} is not a private user chat, so Telegram Premium can't be gifted to it with this flow.`
+      `Fragment worker Python was not found at ${fragmentWorkerPythonPath}.`
     );
   }
 
-  return chat.type.user_id;
-}
-
-async function getPremiumGiftStarOption(monthCount: PremiumDuration) {
-  const options = await client.invoke({
-    _: "getPremiumGiftPaymentOptions",
-  });
-
-  const option = options.options?.find(
-    (value: {
-      month_count?: number;
-      currency?: string;
-      star_count?: number;
-      amount?: number;
-    }) =>
-      value.month_count === Number(monthCount) &&
-      (value.currency === "XTR" || Number(value.star_count) > 0)
-  );
-
-  if (!option) {
+  if (!existsSync(fragmentWorkerScriptPath)) {
     throw new Error(
-      `Telegram didn't return a Stars premium gift option for ${monthCount} month(s).`
+      `Fragment worker script was not found at ${fragmentWorkerScriptPath}.`
     );
   }
 
-  const starCount =
-    typeof option.star_count === "number" && option.star_count > 0
-      ? option.star_count
-      : option.amount;
+  let stdout = "";
+  let stderr = "";
 
-  if (typeof starCount !== "number" || starCount <= 0) {
+  try {
+    const result = await execFileAsync(
+      fragmentWorkerPythonPath,
+      [fragmentWorkerScriptPath, username, monthCount],
+      {
+        cwd: projectRoot,
+        env: process.env,
+        windowsHide: true,
+      }
+    );
+    stdout = result.stdout;
+    stderr = result.stderr;
+  } catch (error) {
+    const execError = error as Error & { stdout?: string; stderr?: string };
+    stdout = execError.stdout ?? "";
+    stderr = execError.stderr ?? "";
+
+    if (!stdout.trim()) {
+      throw new Error(
+        execError.message +
+          (stderr.trim() ? ` | stderr: ${stderr.trim()}` : "")
+      );
+    }
+  }
+
+  const output = stdout.trim();
+  if (!output) {
     throw new Error(
-      `Telegram returned an invalid Stars amount for ${monthCount} month(s).`
+      `Fragment worker returned no output.${stderr ? ` stderr: ${stderr.trim()}` : ""}`
     );
   }
 
-  return {
-    monthCount: Number(monthCount),
-    starCount,
-  };
-}
-
-async function giftPremiumForSelection(chat: {
-  id: number;
-  type?: {
-    _: string;
-    user_id?: number;
-  };
-}, monthCount: PremiumDuration) {
-  const userId = getPrivateChatUserId(chat);
-  const option = await getPremiumGiftStarOption(monthCount);
-  const inputInvoice = {
-    _: "inputInvoiceTelegram",
-    purpose: {
-      _: "telegramPaymentPurposePremiumGift",
-      user_id: userId,
-      currency: "XTR",
-      amount: option.starCount,
-      month_count: option.monthCount,
-      text: {
-        _: "formattedText",
-        text: `Telegram Premium for ${monthCount} month(s)`,
-      },
-    },
-  } as const;
-
-  const paymentForm = await client.invoke({
-    _: "getPaymentForm",
-    input_invoice: inputInvoice,
-  });
-
-  if (paymentForm.type?._ !== "paymentFormTypeStars") {
+  let result: FragmentGiftResult;
+  try {
+    result = JSON.parse(output) as FragmentGiftResult;
+  } catch (error) {
     throw new Error(
-      `Telegram returned a non-Stars payment form for ${monthCount} month(s).`
+      `Fragment worker returned invalid JSON: ${output}${stderr ? ` | stderr: ${stderr.trim()}` : ""}`
     );
   }
 
-  await client.invoke({
-    _: "sendPaymentForm",
-    input_invoice: inputInvoice,
-    payment_form_id: paymentForm.id,
-    order_info_id: "",
-    shipping_option_id: "",
-    credentials: null,
-    tip_amount: 0,
-  });
+  if (!result.success) {
+    throw new Error(result.error ?? "Fragment gift worker failed.");
+  }
 
-  await client.invoke({
-    _: "sendMessage",
-    chat_id: chat.id,
-    input_message_content: {
-      _: "inputMessageText",
-      text: {
-        _: "formattedText",
-        text: `Gifted Telegram Premium for ${monthCount} month(s).`,
-      },
-    },
-  });
+  return result;
 }
 
 export async function askPremiumDurationInChat(chatId: number) {
@@ -282,7 +257,7 @@ export async function askPremiumDurationInChat(chatId: number) {
             _: "inputMessageText",
             text: {
               _: "formattedText",
-              text: "Please reply with 1, 3, 6, or 12.",
+              text: "Please reply with 3, 6, or 12.",
             },
           },
         });
@@ -319,7 +294,53 @@ async function start() {
   });
 
   const selectedDuration = await askPremiumDurationInChat(targetChat.id);
-  await giftPremiumForSelection(targetChat, selectedDuration);
+  await client.invoke({
+    _: "sendMessage",
+    chat_id: targetChat.id,
+    input_message_content: {
+      _: "inputMessageText",
+      text: {
+        _: "formattedText",
+        text: "Processing your Telegram Premium gift...",
+      },
+    },
+  });
+
+  let giftResult: FragmentGiftResult;
+  try {
+    giftResult = await giftPremiumViaFragment(username, selectedDuration);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await client.invoke({
+      _: "sendMessage",
+      chat_id: targetChat.id,
+      input_message_content: {
+        _: "inputMessageText",
+        text: {
+          _: "formattedText",
+          text: `Could not complete the Premium gift: ${message}`,
+        },
+      },
+    });
+    throw error;
+  }
+
+  await client.invoke({
+    _: "sendMessage",
+    chat_id: targetChat.id,
+    input_message_content: {
+      _: "inputMessageText",
+      text: {
+        _: "formattedText",
+        text:
+          `Gifted Telegram Premium for ${selectedDuration} month(s).` +
+          (giftResult.required_amount != null
+            ? ` Paid: ${giftResult.required_amount} TON.`
+            : ""),
+      },
+    },
+  });
+
   console.log(`Gifted premium for ${selectedDuration} month(s)`);
 }
 
