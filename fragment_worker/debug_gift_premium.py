@@ -22,7 +22,7 @@ def require_env(name: str) -> str:
             {
                 "success": False,
                 "stage": "config",
-                "error": f"Missing required environment variable: {name}",
+                "error": f"Отсутствует обязательная переменная окружения: {name}",
             },
             1,
         )
@@ -35,7 +35,7 @@ async def main():
             {
                 "success": False,
                 "stage": "args",
-                "error": "Usage: python debug_gift_premium.py <username> <months>",
+                "error": "Использование: python debug_gift_premium.py <username> <months>",
             },
             1,
         )
@@ -48,7 +48,7 @@ async def main():
             {
                 "success": False,
                 "stage": "args",
-                "error": "Months must be an integer",
+                "error": "Количество месяцев должно быть целым числом",
             },
             1,
         )
@@ -58,7 +58,7 @@ async def main():
             {
                 "success": False,
                 "stage": "args",
-                "error": "Months must be 3, 6, or 12",
+                "error": "Количество месяцев должно быть 3, 6 или 12",
             },
             1,
         )

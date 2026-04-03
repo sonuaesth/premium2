@@ -20,7 +20,7 @@ def main():
             {
                 "success": False,
                 "stage": "args",
-                "error": "Usage: python debug_fragment_gift_chain.py <username> <months>",
+                "error": "Использование: python debug_fragment_gift_chain.py <username> <months>",
             },
             1,
         )
@@ -33,7 +33,7 @@ def main():
             {
                 "success": False,
                 "stage": "args",
-                "error": "Months must be an integer",
+                "error": "Количество месяцев должно быть целым числом",
             },
             1,
         )
@@ -46,7 +46,7 @@ def main():
             {
                 "success": False,
                 "stage": "config",
-                "error": "Missing FRAGMENT_COOKIES or FRAGMENT_HASH",
+                "error": "Отсутствуют FRAGMENT_COOKIES или FRAGMENT_HASH",
             },
             1,
         )
@@ -85,7 +85,7 @@ def main():
                     "username": username,
                     "months": months,
                     "response": search_response,
-                    "error": "Recipient missing from response",
+                    "error": "В ответе отсутствует получатель",
                 },
                 1,
             )
@@ -109,7 +109,7 @@ def main():
                     "recipient": recipient,
                     "search_response": search_response,
                     "response": init_response,
-                    "error": "req_id missing from response",
+                    "error": "В ответе отсутствует req_id",
                 },
                 1,
             )

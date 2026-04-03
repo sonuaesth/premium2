@@ -16,16 +16,16 @@ def fail(message: str, code: int = 1):
 
 async def main():
     if len(sys.argv) != 3:
-        fail("Usage: python gift_premium.py <username> <months>")
+        fail("Использование: python gift_premium.py <username> <months>")
 
     username = sys.argv[1].lstrip("@").strip()
     try:
         months = int(sys.argv[2])
     except ValueError:
-        fail("Months must be an integer")
+        fail("Количество месяцев должно быть целым числом")
 
     if months not in (3, 6, 12):
-        fail("Months must be 3, 6, or 12")
+        fail("Количество месяцев должно быть 3, 6 или 12")
 
     cookies = os.getenv("FRAGMENT_COOKIES", "").strip()
     hash_value = os.getenv("FRAGMENT_HASH", "").strip()
@@ -34,7 +34,7 @@ async def main():
     wallet_version = os.getenv("TON_WALLET_VERSION", "V4R2").strip()
 
     if not all([cookies, hash_value, wallet_mnemonic, wallet_api_key]):
-        fail("Missing Fragment or TON environment variables")
+        fail("Не заданы необходимые переменные окружения Fragment или TON")
 
     try:
         async with AsyncFragmentAPI(
@@ -60,7 +60,7 @@ async def main():
             "success": False,
             "username": username,
             "months": months,
-            "error": getattr(result, "error", "Unknown error"),
+            "error": getattr(result, "error", "Неизвестная ошибка"),
         }))
     except Exception as error:
         fail(str(error))

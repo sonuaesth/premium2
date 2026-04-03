@@ -5,6 +5,12 @@
 node_modules/
 dist/
 coverage/
+.venv/
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
 
 _td_database/
 _td_files/
@@ -23,8 +29,3 @@ Thumbs.db
 *.pem
 private_key*
 wallet_seed*
-
-fragment_worker/.venv/
-fragment_worker/__pycache__/
-fragment_worker/*.pyc
-fragment_worker/.env
