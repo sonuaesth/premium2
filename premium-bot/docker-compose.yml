@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: premium-bot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: premium_bot
+      POSTGRES_PASSWORD: premium_bot_password
+      POSTGRES_DB: premium_bot
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U premium_bot -d premium_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  bot:
+    build:
+      context: ..
+      dockerfile: premium-bot/Dockerfile
+    container_name: premium-bot-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../.env
+      - ./.env
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN}
+      ADMIN_IDS: ${ADMIN_IDS}
+      DATABASE_URL: postgresql://premium_bot:premium_bot_password@postgres:5432/premium_bot
+      FRAGMENT_WORKER_ROOT: /app/fragment_worker
+      FRAGMENT_WORKER_PYTHON: /opt/fragment-venv/bin/python
+      PYTHONPATH: /app/fragment-api-py
+    command: sh -c "npm run db:migrate && npm run dev"
+
+volumes:
+  postgres_data:
